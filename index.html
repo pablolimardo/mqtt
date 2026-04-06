@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guía Interactiva: MQTT y Mosquitto</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* <!-- Chosen Palette: Warm Neutrals & Industrial Amber --> */
+        /* <!-- Application Structure Plan: Sidebar Navigation SPA. Chose a linear but selectable section approach (tabs/sidebar) because a study guide requires sequential learning but also quick reference to specific concepts. Interactions focus on demonstrating abstract concepts (like Pub/Sub vs Polling) visually. --> */
+        /* <!-- Visualization & Content Choices: 
+            1. Intro -> Goal: Compare HTTP/MQTT bandwidth -> Viz: Line Chart (Chart.js) -> Interaction: Hover tooltips -> Justification: Shows the "why it matters" quantitatively.
+            2. Roles -> Goal: Organize concepts -> Viz: Interactive Cards -> Interaction: Click to reveal -> Justification: Chunks information for better retention.
+            3. Topics -> Goal: Teach syntax -> Viz: Interactive text input -> Interaction: Test string matching -> Justification: Active learning by doing.
+            4. Architecture -> Goal: Show relationships -> Viz: CSS Grid Flowchart -> Interaction: "Simulate" button to show data flow -> Justification: Visualizes the abstract network layout without SVG.
+            Confirming NO SVG/Mermaid used.
+        --> */
+        /* <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. --> */
+        
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 350px;
+            max-height: 400px;
+        }
+        
+        .fade-in { animation: fadeIn 0.3s ease-in forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .pulse-element { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(217, 119, 6, 0); } 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(217, 119, 6, 0); } }
+
+        .data-packet {
+            position: absolute;
+            width: 15px;
+            height: 15px;
+            background-color: #d97706;
+            border-radius: 50%;
+            display: none;
+            z-index: 10;
+        }
+
+        .anim-move-right {
+            display: block;
+            animation: moveRight 1.5s linear forwards;
+        }
+
+        @keyframes moveRight {
+            0% { left: 10%; top: 50%; opacity: 1;}
+            50% { left: 50%; top: 50%; transform: scale(1.5);}
+            100% { left: 90%; top: 50%; opacity: 0;}
+        }
+    </style>
+</head>
+<body class="bg-stone-50 text-stone-800 font-sans antialiased overflow-x-hidden flex flex-col md:flex-row min-h-screen">
+
+    <nav class="bg-stone-900 text-stone-100 w-full md:w-64 flex-shrink-0 md:h-screen md:sticky md:top-0 shadow-lg z-20">
+        <div class="p-6">
+            <h1 class="text-2xl font-bold text-amber-500 tracking-tight">MQTT <span class="text-stone-300 font-light text-lg block">Study Guide</span></h1>
+            <p class="text-xs text-stone-400 mt-2 uppercase tracking-widest border-b border-stone-700 pb-4">SCADA | 6º 1º ACPI</p>
+        </div>
+        <ul class="flex flex-row md:flex-col overflow-x-auto md:overflow-x-visible px-4 md:px-0 space-x-2 md:space-x-0">
+            <li><button data-target="sec-intro" class="nav-btn w-full text-left px-6 py-3 hover:bg-stone-800 transition-colors bg-stone-800 border-l-4 border-amber-500 whitespace-nowrap md:whitespace-normal">1. ¿Qué es MQTT?</button></li>
+            <li><button data-target="sec-roles" class="nav-btn w-full text-left px-6 py-3 hover:bg-stone-800 transition-colors border-l-4 border-transparent whitespace-nowrap md:whitespace-normal">2. Protagonistas</button></li>
+            <li><button data-target="sec-broker" class="nav-btn w-full text-left px-6 py-3 hover:bg-stone-800 transition-colors border-l-4 border-transparent whitespace-nowrap md:whitespace-normal">3. Mosquitto</button></li>
+            <li><button data-target="sec-topicos" class="nav-btn w-full text-left px-6 py-3 hover:bg-stone-800 transition-colors border-l-4 border-transparent whitespace-nowrap md:whitespace-normal">4. Tópicos</button></li>
+            <li><button data-target="sec-arq" class="nav-btn w-full text-left px-6 py-3 hover:bg-stone-800 transition-colors border-l-4 border-transparent whitespace-nowrap md:whitespace-normal">5. Arquitectura</button></li>
+            <li><button data-target="sec-repaso" class="nav-btn w-full text-left px-6 py-3 hover:bg-stone-800 transition-colors border-l-4 border-transparent whitespace-nowrap md:whitespace-normal">6. Repaso</button></li>
+        </ul>
+    </nav>
+
+    <main class="flex-1 p-6 md:p-12 lg:p-16 w-full max-w-5xl mx-auto">
+        
+        <section id="sec-intro" class="content-section fade-in">
+            <header class="mb-8 border-b border-stone-200 pb-4">
+                <h2 class="text-4xl font-bold text-stone-900 mb-2">1. ¿Qué es MQTT y por qué nos importa?</h2>
+                <p class="text-xl text-stone-600">Entendiendo el protocolo del Internet de las Cosas (IoT).</p>
+            </header>
+            
+            <div class="prose max-w-none text-lg text-stone-700 space-y-6">
+                <p>Esta sección introduce el concepto fundamental de MQTT, diseñado para situaciones donde el ancho de banda es bajo o donde los dispositivos tienen pocos recursos, superando las limitaciones del HTTP tradicional en entornos industriales.</p>
+                
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-stone-100 mt-6">
+                    <h3 class="text-2xl font-semibold text-amber-700 mb-4">La diferencia clave: Pub/Sub vs Polling</h3>
+                    <p class="mb-4">En la web normal (HTTP), tu navegador pregunta constantemente: <em>"¿Hay datos nuevos?"</em>. Esto satura la red. MQTT usa <strong>Publicar/Suscribir (Pub/Sub)</strong>, similar a las notificaciones de tu celular: los datos llegan solos cuando se publican.</p>
+                    
+                    <div class="mt-8 bg-stone-50 p-4 rounded-lg border border-stone-200">
+                        <h4 class="text-center font-semibold mb-2 text-stone-600">Comparativa Teórica de Tráfico de Red (Ejemplo de 1 hora)</h4>
+                        <div class="chart-container">
+                            <canvas id="trafficChart"></canvas>
+                        </div>
+                        <p class="text-sm text-center mt-2 text-stone-500">HTTP realiza peticiones constantes. MQTT mantiene una conexión liviana y solo transmite cuando hay un evento.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="sec-roles" class="content-section hidden">
+            <header class="mb-8 border-b border-stone-200 pb-4">
+                <h2 class="text-4xl font-bold text-stone-900 mb-2">2. Los Protagonistas del Sistema</h2>
+                <p class="text-xl text-stone-600">Los tres elementos clave para que la magia suceda.</p>
+            </header>
+
+            <p class="text-lg text-stone-700 mb-8">Esta sección detalla cómo interactúan los dispositivos en un entorno MQTT. Haz clic en cada tarjeta para entender su función específica en nuestro proyecto SCADA.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                <div class="bg-white rounded-xl shadow-md border-t-4 border-blue-500 p-6 cursor-pointer hover:-translate-y-1 transition-transform relative overflow-hidden" onclick="document.getElementById('desc-pub').classList.toggle('hidden')">
+                    <div class="text-4xl mb-4 text-center">📡</div>
+                    <h3 class="text-xl font-bold text-center mb-2">Cliente Publicador</h3>
+                    <p class="text-stone-500 text-center text-sm mb-4">Ej: ESP32 con sensores</p>
+                    <div id="desc-pub" class="hidden text-stone-700 text-sm bg-blue-50 p-3 rounded-lg border border-blue-100">
+                        Un dispositivo que envía información. Ejemplo: Tu ESP32 leyendo un sensor de temperatura y mandando el dato.
+                    </div>
+                    <div class="absolute bottom-2 right-2 text-xs text-blue-400">Clic para info &rarr;</div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-md border-t-4 border-amber-500 p-6 cursor-pointer hover:-translate-y-1 transition-transform relative overflow-hidden" onclick="document.getElementById('desc-brok').classList.toggle('hidden')">
+                    <div class="text-4xl mb-4 text-center">💻</div>
+                    <h3 class="text-xl font-bold text-center mb-2">El Broker</h3>
+                    <p class="text-stone-500 text-center text-sm mb-4">Ej: Mosquitto en PC</p>
+                    <div id="desc-brok" class="hidden text-stone-700 text-sm bg-amber-50 p-3 rounded-lg border border-amber-100">
+                        El servidor central (Director de Orquesta). Recibe todos los mensajes y decide a quién enviárselos. No genera datos, solo los distribuye.
+                    </div>
+                    <div class="absolute bottom-2 right-2 text-xs text-amber-400">Clic para info &rarr;</div>
+                </div>
+
+                <div class="bg-white rounded-xl shadow-md border-t-4 border-green-500 p-6 cursor-pointer hover:-translate-y-1 transition-transform relative overflow-hidden" onclick="document.getElementById('desc-sub').classList.toggle('hidden')">
+                    <div class="text-4xl mb-4 text-center">🖥️</div>
+                    <h3 class="text-xl font-bold text-center mb-2">Cliente Suscriptor</h3>
+                    <p class="text-stone-500 text-center text-sm mb-4">Ej: Node-RED</p>
+                    <div id="desc-sub" class="hidden text-stone-700 text-sm bg-green-50 p-3 rounded-lg border border-green-100">
+                        Un dispositivo o programa que se "anota" para recibir datos. Ejemplo: Tu dashboard en Node-RED esperando el dato para graficarlo.
+                    </div>
+                    <div class="absolute bottom-2 right-2 text-xs text-green-400">Clic para info &rarr;</div>
+                </div>
+
+            </div>
+            <p class="mt-6 text-sm text-stone-500 italic text-center">Nota: Un mismo dispositivo (como Node-RED) puede ser publicador y suscriptor al mismo tiempo.</p>
+        </section>
+
+        <section id="sec-broker" class="content-section hidden">
+             <header class="mb-8 border-b border-stone-200 pb-4">
+                <h2 class="text-4xl font-bold text-stone-900 mb-2">3. Mosquitto: Nuestro Broker</h2>
+                <p class="text-xl text-stone-600">El núcleo de la red local.</p>
+            </header>
+
+            <div class="flex flex-col md:flex-row gap-8 items-start">
+                <div class="flex-1 text-lg text-stone-700 space-y-4">
+                    <p>En este proyecto utilizaremos <strong>Eclipse Mosquitto</strong>, un broker de código abierto que implementa el protocolo MQTT de manera eficiente.</p>
+                    <ul class="list-none space-y-3">
+                        <li class="flex items-center"><span class="text-amber-500 mr-2">✓</span> <strong>Súper liviano:</strong> Puede correr en una PC de laboratorio o en una Raspberry Pi.</li>
+                        <li class="flex items-center"><span class="text-amber-500 mr-2">✓</span> <strong>Es el estándar:</strong> Fundamental para cualquier sistema IoT industrial.</li>
+                        <li class="flex items-center"><span class="text-amber-500 mr-2">✓</span> <strong>Herramientas CLI:</strong> Incluye utilidades de consola para pruebas rápidas.</li>
+                    </ul>
+                </div>
+                
+                <div class="flex-1 bg-stone-900 text-stone-200 p-6 rounded-xl w-full font-mono text-sm shadow-inner">
+                    <p class="text-stone-500 mb-2">// Herramientas incluidas para probar antes de programar</p>
+                    <div class="mb-4">
+                        <span class="text-blue-400"># Para publicar un mensaje:</span><br>
+                        <span class="text-green-400">mosquitto_pub</span> -t "test/tema" -m "Hola"
+                    </div>
+                    <div>
+                        <span class="text-blue-400"># Para escuchar mensajes:</span><br>
+                        <span class="text-green-400">mosquitto_sub</span> -t "test/tema"
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="sec-topicos" class="content-section hidden">
+             <header class="mb-8 border-b border-stone-200 pb-4">
+                <h2 class="text-4xl font-bold text-stone-900 mb-2">4. Entendiendo los Tópicos</h2>
+                <p class="text-xl text-stone-600">El sistema de enrutamiento de mensajes.</p>
+            </header>
+
+            <p class="text-lg text-stone-700 mb-6">El Broker organiza la información en Tópicos. Son como rutas de carpetas que identifican de qué trata el mensaje.</p>
+
+            <div class="bg-stone-800 text-stone-100 p-4 rounded-lg font-mono text-center text-lg md:text-xl tracking-wider mb-8 shadow-md">
+                planta1 <span class="text-amber-500">/</span> tanqueA <span class="text-amber-500">/</span> temperatura
+            </div>
+
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-8">
+                <h3 class="text-xl font-bold text-amber-800 mb-2">Comodines (Wildcards)</h3>
+                <p class="text-stone-700 mb-4">El comodín <strong class="text-2xl bg-amber-200 px-2 rounded">#</strong> permite suscribirse a múltiples niveles de un tópico de una sola vez.</p>
+                
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-stone-200">
+                    <h4 class="font-semibold mb-3 text-stone-800">Laboratorio Interactivo: Validador de Tópicos</h4>
+                    <p class="text-sm text-stone-500 mb-4">Supongamos que Node-RED está suscrito a: <strong>planta1/tanqueA/#</strong></p>
+                    
+                    <div class="flex flex-col md:flex-row gap-4 items-center">
+                        <div class="w-full md:w-2/3">
+                            <label class="block text-sm font-medium text-stone-700 mb-1">El ESP32 publica en el tópico:</label>
+                            <input type="text" id="topicInput" value="planta1/tanqueA/nivel" class="w-full border-stone-300 rounded-md shadow-sm p-2 border focus:ring-amber-500 focus:border-amber-500 text-mono">
+                        </div>
+                        <button id="btnCheckTopic" class="w-full md:w-auto bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-6 rounded-md transition-colors mt-6 md:mt-0 shadow-md">
+                            Comprobar
+                        </button>
+                    </div>
+                    
+                    <div id="topicResult" class="mt-4 p-3 rounded-md hidden font-semibold text-center transition-all">
+                        Result Area
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="sec-arq" class="content-section hidden">
+            <header class="mb-8 border-b border-stone-200 pb-4">
+                <h2 class="text-4xl font-bold text-stone-900 mb-2">5. Arquitectura del Proyecto</h2>
+                <p class="text-xl text-stone-600">Cómo se conectan todas las piezas.</p>
+            </header>
+
+            <p class="text-lg text-stone-700 mb-8">Esta sección visualiza el flujo de información en nuestro sistema SCADA integrador. Presiona el botón para simular un envío de datos.</p>
+
+            <div class="bg-stone-100 rounded-2xl p-8 relative min-h-[400px] border border-stone-200 overflow-hidden flex flex-col justify-center shadow-inner">
+                
+                <div id="packet" class="data-packet"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-0">
+                    
+                    <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-blue-500 flex flex-col items-center justify-center h-48 relative">
+                        <div class="text-4xl mb-2">🔌</div>
+                        <h3 class="font-bold">1. Hardware (ESP32)</h3>
+                        <p class="text-xs text-center text-stone-500 mt-2">Lee sensores y publica datos por WiFi.</p>
+                        <div class="hidden md:block absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 text-2xl text-stone-300">➔</div>
+                    </div>
+
+                    <div id="broker-box" class="bg-stone-800 text-white p-6 rounded-xl shadow-xl border-t-4 border-amber-500 flex flex-col items-center justify-center h-48 relative transition-all duration-300">
+                        <div class="text-4xl mb-2">🖥️</div>
+                        <h3 class="font-bold text-amber-400">2. Broker (Mosquitto)</h3>
+                        <p class="text-xs text-center text-stone-400 mt-2">PC local. Recibe y distribuye (No genera).</p>
+                        <div class="hidden md:block absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 text-2xl text-stone-300">➔</div>
+                    </div>
+
+                    <div class="bg-white p-6 rounded-xl shadow-md border-t-4 border-green-500 flex flex-col items-center justify-center h-48">
+                        <div class="text-4xl mb-2">📊</div>
+                        <h3 class="font-bold">3. SCADA (Node-RED)</h3>
+                        <p class="text-xs text-center text-stone-500 mt-2">Suscrito a tópicos. Muestra interfaz gráfica.</p>
+                    </div>
+
+                </div>
+
+                <div class="text-center mt-12 relative z-20">
+                    <button id="btnSimulate" class="bg-stone-900 hover:bg-stone-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-transform active:scale-95">
+                        Simular Envío de Sensor
+                    </button>
+                    <p id="sim-status" class="mt-4 text-sm font-mono text-stone-500 h-6"></p>
+                </div>
+            </div>
+            
+            <div class="mt-6 bg-blue-50 border-l-4 border-blue-500 p-4">
+                <p class="text-sm text-stone-700"><strong>Flujo de Control:</strong> El camino inverso también es posible. Desde Node-RED tocamos un botón, publica un "ON" y el ESP32 (suscrito a ese tópico) activa un relé físico.</p>
+            </div>
+        </section>
+
+        <section id="sec-repaso" class="content-section hidden">
+            <header class="mb-8 border-b border-stone-200 pb-4">
+                <h2 class="text-4xl font-bold text-stone-900 mb-2">6. Actividad de Repaso</h2>
+                <p class="text-xl text-stone-600">Autoevaluación para la clase.</p>
+            </header>
+
+            <p class="text-lg text-stone-700 mb-8">Reflexiona sobre las siguientes preguntas. Haz clic en cada una para revelar conceptos clave que deben estar en tu respuesta.</p>
+
+            <div class="space-y-4">
+                
+                <div class="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                    <button class="w-full text-left p-4 font-semibold text-stone-800 hover:bg-stone-50 focus:outline-none flex justify-between items-center" onclick="toggleAccordion('ans1')">
+                        <span>1. ¿Por qué MQTT es mejor que HTTP para conectar un ESP32 a un SCADA?</span>
+                        <span class="text-stone-400">▼</span>
+                    </button>
+                    <div id="ans1" class="hidden p-4 bg-stone-50 border-t border-stone-100 text-stone-600">
+                        Debe mencionar: Protocolo liviano, consume menos ancho de banda, ideal para pocos recursos. Diferencia principal: Modelo Pub/Sub frente al Polling (preguntar constantemente) de HTTP.
+                    </div>
+                </div>
+
+                <div class="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                    <button class="w-full text-left p-4 font-semibold text-stone-800 hover:bg-stone-50 focus:outline-none flex justify-between items-center" onclick="toggleAccordion('ans2')">
+                        <span>2. Estructura el Tópico para: Presión de caldera, sector 4.</span>
+                        <span class="text-stone-400">▼</span>
+                    </button>
+                    <div id="ans2" class="hidden p-4 bg-stone-50 border-t border-stone-100 text-stone-600 font-mono">
+                        Ejemplo válido: sector4/caldera/presion
+                    </div>
+                </div>
+
+                <div class="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                    <button class="w-full text-left p-4 font-semibold text-stone-800 hover:bg-stone-50 focus:outline-none flex justify-between items-center" onclick="toggleAccordion('ans3')">
+                        <span>3. ¿Podrían el ESP32 y Node-RED hablar directamente sin Mosquitto?</span>
+                        <span class="text-stone-400">▼</span>
+                    </button>
+                    <div id="ans3" class="hidden p-4 bg-stone-50 border-t border-stone-100 text-stone-600">
+                        No en esta arquitectura MQTT. Mosquitto es el Broker central obligatorio que enruta los mensajes basándose en tópicos entre publicadores y suscriptores.
+                    </div>
+                </div>
+
+                <div class="border border-stone-200 rounded-lg overflow-hidden bg-white shadow-sm">
+                    <button class="w-full text-left p-4 font-semibold text-stone-800 hover:bg-stone-50 focus:outline-none flex justify-between items-center" onclick="toggleAccordion('ans4')">
+                        <span>4. ¿Para qué sirven mosquitto_pub y mosquitto_sub?</span>
+                        <span class="text-stone-400">▼</span>
+                    </button>
+                    <div id="ans4" class="hidden p-4 bg-stone-50 border-t border-stone-100 text-stone-600">
+                        Son herramientas de consola. <code>mosquitto_pub</code> simula ser un dispositivo enviando datos (publicando). <code>mosquitto_sub</code> simula ser un sistema escuchando (suscribiéndose) para probar la red antes de programar los equipos finales.
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const navButtons = document.querySelectorAll('.nav-btn');
+        const sections = document.querySelectorAll('.content-section');
+        let chartInstance = null;
+
+        navButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const targetId = btn.getAttribute('data-target');
+                
+                sections.forEach(sec => sec.classList.add('hidden', 'fade-in'));
+                document.getElementById(targetId).classList.remove('hidden');
+
+                navButtons.forEach(b => {
+                    b.classList.remove('bg-stone-800', 'border-amber-500');
+                    b.classList.add('border-transparent');
+                });
+                btn.classList.remove('border-transparent');
+                btn.classList.add('bg-stone-800', 'border-amber-500');
+
+                if(targetId === 'sec-intro' && !chartInstance) {
+                    initChart();
+                }
+            });
+        });
+
+        function initChart() {
+            const ctx = document.getElementById('trafficChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['0m', '10m', '20m', '30m', '40m', '50m', '60m'],
+                    datasets: [
+                        {
+                            label: 'Peticiones HTTP (Polling)',
+                            data: [100, 200, 300, 400, 500, 600, 700],
+                            borderColor: '#ef4444', 
+                            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1
+                        },
+                        {
+                            label: 'Mensajes MQTT (Pub/Sub)',
+                            data: [5, 5, 20, 20, 25, 25, 30], 
+                            borderColor: '#d97706', 
+                            backgroundColor: 'rgba(217, 119, 6, 0.2)',
+                            borderWidth: 3,
+                            fill: true,
+                            stepped: true 
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top' },
+                        tooltip: { mode: 'index', intersect: false }
+                    },
+                    scales: {
+                        y: { 
+                            beginAtZero: true, 
+                            title: { display: true, text: 'Tráfico Acumulado (Unidades)' } 
+                        },
+                        x: { 
+                            title: { display: true, text: 'Tiempo' } 
+                        }
+                    }
+                }
+            });
+        }
+
+        document.getElementById('btnCheckTopic').addEventListener('click', () => {
+            const inputVal = document.getElementById('topicInput').value.trim();
+            const resultDiv = document.getElementById('topicResult');
+            resultDiv.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+            
+            if(inputVal.startsWith('planta1/tanqueA/')) {
+                resultDiv.textContent = '¡Correcto! Node-RED recibirá este mensaje (Coincide con #)';
+                resultDiv.classList.add('bg-green-100', 'text-green-800');
+            } else {
+                resultDiv.textContent = 'Sin recepción. El tópico no está dentro de planta1/tanqueA/';
+                resultDiv.classList.add('bg-red-100', 'text-red-800');
+            }
+        });
+
+        document.getElementById('btnSimulate').addEventListener('click', () => {
+            const packet = document.getElementById('packet');
+            const brokerBox = document.getElementById('broker-box');
+            const status = document.getElementById('sim-status');
+            const btn = document.getElementById('btnSimulate');
+            
+            if(btn.disabled) return;
+            btn.disabled = true;
+
+            packet.classList.remove('anim-move-right');
+            void packet.offsetWidth; 
+            
+            status.textContent = "ESP32: Publicando dato de sensor...";
+            packet.classList.add('anim-move-right');
+
+            setTimeout(() => {
+                brokerBox.classList.add('pulse-element');
+                status.innerHTML = "Mosquitto: Recibiendo y enrutando...";
+            }, 750);
+
+            setTimeout(() => {
+                brokerBox.classList.remove('pulse-element');
+                status.innerHTML = "<span class='text-green-600 font-bold'>Node-RED: Dato recibido por suscripción.</span>";
+                btn.disabled = false;
+            }, 1500);
+        });
+
+        function toggleAccordion(id) {
+            const el = document.getElementById(id);
+            if(el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                el.classList.add('fade-in');
+            } else {
+                el.classList.add('hidden');
+            }
+        }
+
+        initChart();
+    </script>
+</body>
+</html>
